@@ -245,8 +245,6 @@ grpcurl -insecure localhost:7044 list
 
 Things I'd fix or add next:
 
-- **`UpdateTodoRequest` is dead code.** The message exists in the proto but no RPC uses it.
-  Add an `UpdateTodo` RPC or delete the message.
 - **Inconsistent delete semantics.** `DeleteTodo` returns `success=false` for a missing id,
   while `GetTodo` / `ToggleTodo` throw `NotFound`. Pick one style — status codes are more
   gRPC-idiomatic.
