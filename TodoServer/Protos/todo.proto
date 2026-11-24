@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "google/protobuf/timestamp.proto";
+
 option csharp_namespace = "TodoServer";
 
 package todo;
@@ -9,6 +11,7 @@ service TodoService {
   rpc CreateTodo (CreateTodoRequest) returns (TodoItem);
   rpc GetTodo (GetTodoRequest) returns (TodoItem);
   rpc ListTodo (EmptyRequest) returns (TodoListResponse);
+  rpc ListDeletedTodos (EmptyRequest) returns (TodoListResponse);
   rpc ToggleTodo (ToggleTodoRequest) returns (TodoItem);
   rpc DeleteTodo (DeleteTodoRequest) returns (DeleteTodoResponse);
   rpc GetAllTodosIncludingDeleted (EmptyRequest) returns (TodoListResponse);
@@ -22,6 +25,8 @@ message TodoItem {
   int32 id = 1;
   string title = 2;
   bool is_completed = 3;
+  bool is_deleted = 4;
+  google.protobuf.Timestamp deleted_at_utc = 5;
 }
 
 message CreateTodoRequest {

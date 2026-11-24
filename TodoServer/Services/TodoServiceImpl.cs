@@ -58,6 +58,21 @@ public class TodoServiceImpl : TodoService.TodoServiceBase
         response.Items.AddRange(entities.ToProtoList());
         return response;
     }
+
+    public override async Task<TodoListResponse> ListDeletedTodos(EmptyRequest request, ServerCallContext context)
+    {
+        var entities = await _db.Todos
+            .IgnoreQueryFilters()
+            .Where(t => t.IsDeleted)
+            .AsNoTracking()
+            .OrderBy(t => t.Id)
+            .ToListAsync(context.CancellationToken);
+
+        var response = new TodoListResponse();
+        response.Items.AddRange(entities.ToProtoList());
+        return response;
+    }
+
     public override async Task<TodoItem> ToggleTodo(ToggleTodoRequest request, ServerCallContext context)
     {
         var entity = await _db.Todos

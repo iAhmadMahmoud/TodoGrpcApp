@@ -1,3 +1,4 @@
+using Google.Protobuf.WellKnownTypes;
 using TodoServer.Models;
 
 namespace TodoServer.Mappers;
@@ -10,7 +11,11 @@ internal static class TodoMapper
         {
             Id = entity.Id,
             Title = entity.Title,
-            IsCompleted = entity.IsCompleted
+            IsCompleted = entity.IsCompleted,
+            IsDeleted = entity.IsDeleted,
+            DeletedAtUtc = entity.DeletedAtUtc is null
+                ? null
+                : Timestamp.FromDateTime(DateTime.SpecifyKind(entity.DeletedAtUtc.Value, DateTimeKind.Utc))
         };
     }
 

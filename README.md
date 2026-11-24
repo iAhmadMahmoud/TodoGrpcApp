@@ -147,23 +147,32 @@ Service: `todo.TodoService`
 | `CreateTodo` | `CreateTodoRequest { string title }` | `TodoItem` | Trims the title; blank title → `InvalidArgument` |
 | `GetTodo` | `GetTodoRequest { int32 id }` | `TodoItem` | Missing id → `NotFound` |
 | `ListTodo` | `EmptyRequest` | `TodoListResponse` | Active todos only, ordered by id |
+| `ListDeletedTodos` | `EmptyRequest` | `TodoListResponse` | Deleted todos only (`IgnoreQueryFilters()` + `IsDeleted` filter) |
 | `ToggleTodo` | `ToggleTodoRequest { int32 id }` | `TodoItem` | Flips `is_completed`; missing id → `NotFound` |
 | `DeleteTodo` | `DeleteTodoRequest { int32 id }` | `DeleteTodoResponse { bool success }` | Soft delete; returns `success=false` when missing |
-| `GetAllTodosIncludingDeleted` | `EmptyRequest` | `TodoListResponse` | Uses `IgnoreQueryFilters()` to bypass the soft-delete filter |
+| `GetAllTodosIncludingDeleted` | `EmptyRequest` | `TodoListResponse` | Uses `IgnoreQueryFilters()` to bypass the soft-delete filter; each item carries `is_deleted` |
 
 Messages:
 
 ```protobuf
+import "google/protobuf/timestamp.proto";
+
 message TodoItem {
-  int32  id           = 1;
-  string title        = 2;
-  bool   is_completed = 3;
+  int32  id                        = 1;
+  string title                     = 2;
+  bool   is_completed              = 3;
+  bool   is_deleted                = 4;
+  google.protobuf.Timestamp deleted_at_utc = 5;  // null for active rows
 }
 
 message TodoListResponse {
   repeated TodoItem items = 1;
 }
 ```
+
+`is_deleted` is the flag that tells you whether a row came from the soft-delete bin, and
+`deleted_at_utc` records when it happened. Both were added at tags `4` and `5`, so the change
+is wire-compatible with clients generated from the older contract.
 
 ## Trying it with grpcurl
 
@@ -184,10 +193,24 @@ grpcurl -plaintext -d '{}'     localhost:5052 todo.TodoService/ListTodo
 # Toggle completion
 grpcurl -plaintext -d '{"id":1}' localhost:5052 todo.TodoService/ToggleTodo
 
-# Soft delete, then prove the row still exists in the DB
+# Soft delete, then inspect the deleted bin and the combined list
 grpcurl -plaintext -d '{"id":1}' localhost:5052 todo.TodoService/DeleteTodo
+grpcurl -plaintext -d '{}'       localhost:5052 todo.TodoService/ListDeletedTodos
 grpcurl -plaintext -d '{}'       localhost:5052 todo.TodoService/GetAllTodosIncludingDeleted
 ```
+
+`GetAllTodosIncludingDeleted` is the one that mixes both states, so look at `isDeleted` on each
+item: `true` means the row was soft-deleted, `false` means it is still active. `ListDeletedTodos`
+is the same query pre-filtered to `isDeleted: true`.
+
+> **Why is `isDeleted: false` missing from the output?** Protobuf does not put default values on
+> the wire, so `grpcurl` hides them. Add `-emit-defaults` to see `isDeleted: false` explicitly:
+>
+> ```powershell
+> grpcurl -plaintext -emit-defaults -d '{}' localhost:5052 todo.TodoService/ListTodo
+> ```
+>
+> Your generated C# client always reads the correct value (`false`) regardless.
 
 If you run the `https` profile instead, target port `7044` and add `-insecure`:
 
@@ -206,6 +229,10 @@ grpcurl -insecure localhost:7044 list
 - **Audit trail.** Every create / update / soft delete writes a `TodoAuditLogs` row with the
   action, a title snapshot, a completion snapshot, and `OccurredAtUtc`. The rows are written
   in the same `SaveChangesAsync` call as the todo change.
+- **Deletion state is part of the contract.** `TodoItem` exposes `is_deleted` and
+  `deleted_at_utc`, so a single list response is self-describing. `ListTodo` and
+  `ListDeletedTodos` are just the same query with opposite `IsDeleted` filters, and
+  `GetAllTodosIncludingDeleted` returns both.
 - **UTC everywhere.** `CreatedAtUtc`, `UpdatedAtUtc`, `DeletedAtUtc`, and `OccurredAtUtc` are
   set server-side with `DateTime.UtcNow`.
 - **Validation at the edge.** Blank titles are rejected before touching the database, and
@@ -220,9 +247,6 @@ Things I'd fix or add next:
 
 - **`UpdateTodoRequest` is dead code.** The message exists in the proto but no RPC uses it.
   Add an `UpdateTodo` RPC or delete the message.
-- **`GetAllTodosIncludingDeleted` can't show what's deleted.** `TodoItem` has no `IsDeleted`
-  field, so soft-deleted rows are indistinguishable from active ones. Add the field (and
-  maybe timestamps) to the message.
 - **Inconsistent delete semantics.** `DeleteTodo` returns `success=false` for a missing id,
   while `GetTodo` / `ToggleTodo` throw `NotFound`. Pick one style — status codes are more
   gRPC-idiomatic.
